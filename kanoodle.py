@@ -279,6 +279,12 @@ class allist:
     def __len__(self):
         return self._size
 
+    def inside(self, node):
+        for n in self:
+            if n == node:
+                return True
+        return False
+
     def append_node(self, node):
         self._size += 1
         self._end.right = node
@@ -292,7 +298,6 @@ class allist:
     def append(self, item=None, top=None):
         if top is None:
             top = self
-
         self.append_node(_node(name='added by allist.append', value=item, top=top))
 
     # remove from the llist, expecting it to be added back later (does not
@@ -370,9 +375,6 @@ class allist:
         self._start = self._start.right
         return ret
 
-    def peek(self):
-        return self._start
-
     def __repr__(self):
         if len(self) == 0:
             return '[]'
@@ -385,6 +387,34 @@ class allist:
         return s[:-2] + ']'
 
 
+def printfm(dl, strr):
+    boar = ['_'] * (5 * 11)
+    label = '_'
+    for r in strr.split('\n'):
+        if r == '':
+            continue
+        if r[0] == 'i':
+            label = r[3:]
+            continue
+        i, j = r[1:-1].split(', ')
+        x = int(i)
+        y = int(j)
+        boar[x + 11 * y] = label
+    for y in range(5):
+        p = ''
+        for x in range(11):
+            v = vector(x, y, 0)
+            l = dl._heads.get(dl.lookup[v])
+            count = str(len(l.val()))
+            if dl._heads.inside(l):
+                ad = '+'
+            else:
+                ad = '!'
+            lab = '[' + boar[x + 11 * y] + '] ' + ad + count
+            p += lab + ' ' * (12 - len(lab))
+        print(p)
+
+
 class dancing_links:
 
     def __init__(self, opts_and_items, itemlist):
@@ -395,12 +425,12 @@ class dancing_links:
         self._array = []
         self._heads = allist('heads') # list of all items
         self._opts = {}
-        lookup = {}
+        self.lookup = {}
         count = 0
         for item in itemlist:
             self._array.append(_node(name=item, value=count, len=0))
             self._heads.append(self._array[-1])
-            lookup[item] = count
+            self.lookup[item] = count
             count += 1
 
         count = 1
@@ -410,7 +440,7 @@ class dancing_links:
         for option in opts_and_items:
             first = None
             for item in option:
-                index = lookup[item]
+                index = self.lookup[item]
                 # add the index of the spot in array
                 self._array[index].append(len(self._array), top=index)
                 self._array.append(self._array[index].get_last())
@@ -464,50 +494,59 @@ class dancing_links:
 
     def solve(self):
         self.solns = []
-        self.part = []
-        self.solve_subprob(0)
+        self.solve_subprob([])
         return self.solns
 
-    def solve_subprob(self, l):
+    def solve_subprob(self, partial_soln):
         if len(self._heads) == 0:
-            self.solns.append(self.part.copy())
+            self.solns.append(partial_soln.copy())
             print(len(self.solns))
+            # strr = ''
+            # for s in self.solns[-1]:
+            #     for q in s:
+            #         strr += str(q) + '\n'
+            # printfm(self, strr)
             return
-        for node in self._heads:
-            if len(node.val()) == 0:
-                return
-        vv = self._heads.get_first_node()
-        attr_index = self._heads._ar.index(vv)
-        self.try_attr(attr_index, l)
+        min = -1
+        node = None
+        for head in self._heads:
+            l = len(head.val())
+            if l < min or min == -1:
+                min = l
+                node = head
+        if min == 0:
+            return
+        attr_index = self._heads._ar.index(node)
+        self.try_attr(attr_index, partial_soln)
 
-    def try_attr(self, attr_index, l):
+    def try_attr(self, attr_index, partial_soln):
         self.cover(attr_index)
         xl = self._array[attr_index].right.val()
         while xl != attr_index:
             self.try_cover(xl)
-            self.part.append(self._opts[xl])
-            self.solve_subprob(l + 1)
+            self.solve_subprob(partial_soln + [xl])
             self.uncover_try(xl)
-            self.part = self.part[:-1]
             xl = self._array[xl].right.val()
         self.uncover(attr_index)
 
     def try_cover(self, xl):
         p = xl + 1
         while p != xl:
-            if self._array[p].top < 0:
+            top = self._array[p].top
+            if top < 0:
                 p = self._array[p].left.val()
             else:
-                self.cover(self._array[p].top)
+                self.cover(top)
                 p += 1
 
     def uncover_try(self, xl):
         p = xl - 1
         while p != xl:
-            if self._array[p].top < 0:
+            top = self._array[p].top
+            if top < 0:
                 p = self._array[p].right.val()
             else:
-                self.uncover(self._array[p].top)
+                self.uncover(top)
                 p -= 1
 
     def cover(self, attr_index):
