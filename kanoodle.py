@@ -62,33 +62,82 @@ class vector:
     def __sub__(self, v):
         return vector(self.x - v.x, self.y - v.y, self.z - v.z)
 
+    def __repr__(self):
+        return '<' + str(self.x) + ', ' + str(self.y) + '>'
+
+    def __eq__(self, other):
+        return self.x == other.x and self.y == other.y
+
+    def __hash__(self):
+        r = 31
+        r = 17 * r + self.x
+        r = 17 * r + self.y
+        return r
+
 
 pfill = .8
 
 
 class piece:
-    def __init__(self, spots):
-        self.pos = vector(0, 0, 0)
+
+    # symmetry levels:
+    #     0: no symmetries
+    #     1: axial symmetry (only do first 2 orientations)
+    #     2: biaxial symmetry (only flip)
+    #     3: mirror image of itself (don't flip)
+    #     4: axial and mirror symmetry (only do first 2 orientations and don't flip)
+    #     5: entirely symmetric (don't do anything)
+    def __init__(self, spots, x=0, y=0, orientation=0, flipped=False, symmetry_level=0):
+        self.pos = vector(x, y, 0)
         self.spots = spots
-        self.circs = []
+        self.orientation = orientation
+        self.flipped = flipped
+        self.sym = symmetry_level
 
     def get_spots(self):
         l = []
         for spot in self.spots:
-            v = vector(spot[0], spot[1], 0)
+            dx = spot[0]
+            dy = spot[1]
+            if self.flipped:
+                dy *= -1
+            if self.orientation == 0:
+                v = vector(dx, dy, 0)
+            elif self.orientation == 1:
+                v = vector(-dy, dx, 0)
+            elif self.orientation == 2:
+                v = vector(-dx, -dy, 0)
+            else:
+                v = vector(dy, -dx, 0)
             l.append(self.pos + v)
         return l
 
+    def gen_all_spots(self, w, h):
+        if self.sym % 3 == 2:
+            ors = range(1)
+        elif self.sym % 3 == 1:
+            ors = range(2)
+        else:
+            ors = range(4)
+        for orientation in ors:
+            if self.sym >= 3:
+                flips = [False]
+            else:
+                flips = [False, True]
+
+            for flipped in flips:
+                p = piece(self.spots, orientation=orientation, flipped=flipped)
+                spots = list(p.get_spots())
+                sx = -min(v.x for v in spots)
+                sy = -min(v.y for v in spots)
+                wid = w - max(v.x for v in spots)
+                hei = h - max(v.y for v in spots)
+                for x in range(sx, wid):
+                    for y in range(sy, hei):
+                        yield piece(p.spots, x, y, orientation=orientation, flipped=flipped).get_spots()
+
     def setpos(self, newpos):
         self.pos = vector(newpos[0], newpos[1], 0)
-
-    def set_visible(self):
-        for c in self.circs:
-            c.opacity = 1
-
-    def set_invisible(self):
-        for c in self.circs:
-            c.opacity = 0
 
     def insersects(self, other):
         for spot in self.get_spots():
@@ -140,16 +189,26 @@ class board:
         self.pieces = self.pieces[:-1]
 
     def find_solution(self, pieces):
-        poslook = self._find_empty()
-        for piece in pieces:
-            pass
+        all_pieces_and_orientations = []
+        count = 0
+        attrs = list('is ' + str(w) for w in range(len(pieces)))
+        for x in range(self.w):
+            for y in range(self.h):
+                attrs += [vector(x, y, 0)]
 
-    def _find_empty(self):
-        for i in range(self.w):
-            for j in range(self.h):
-                if not self.get(i, j):
-                    return (i, j)
-        return None
+        for piece in pieces:
+            arad = ['is ' + str(count)]
+            for spots in piece.gen_all_spots(self.w, self.h):
+                all_pieces_and_orientations.append(arad + spots)
+            count += 1
+        d = dancing_links(all_pieces_and_orientations, attrs)
+        for attr in attrs:
+            print('attr', attr)
+        for soln in d.solve():
+            print('fup')
+            print(soln)
+            return
+        print('done')
 
 
 class _node:
@@ -412,14 +471,18 @@ class dancing_links:
     def solve_subprob(self, l):
         if len(self._heads) == 0:
             self.solns.append(self.part.copy())
+            print(len(self.solns))
             return
+        for node in self._heads:
+            if len(node.val()) == 0:
+                return
         vv = self._heads.get_first_node()
         attr_index = self._heads._ar.index(vv)
         self.try_attr(attr_index, l)
 
     def try_attr(self, attr_index, l):
-        d.cover(attr_index)
-        xl = d._array[attr_index].right.val()
+        self.cover(attr_index)
+        xl = self._array[attr_index].right.val()
         while xl != attr_index:
             self.try_cover(xl)
             self.part.append(self._opts[xl])
@@ -427,24 +490,24 @@ class dancing_links:
             self.uncover_try(xl)
             self.part = self.part[:-1]
             xl = self._array[xl].right.val()
-        d.uncover(attr_index)
+        self.uncover(attr_index)
 
     def try_cover(self, xl):
         p = xl + 1
         while p != xl:
-            if d._array[p].top < 0:
-                p = d._array[p].left.val()
+            if self._array[p].top < 0:
+                p = self._array[p].left.val()
             else:
-                d.cover(d._array[p].top)
+                self.cover(self._array[p].top)
                 p += 1
 
     def uncover_try(self, xl):
         p = xl - 1
         while p != xl:
-            if d._array[p].top < 0:
-                p = d._array[p].right.val()
+            if self._array[p].top < 0:
+                p = self._array[p].right.val()
             else:
-                d.uncover(d._array[p].top)
+                self.uncover(self._array[p].top)
                 p -= 1
 
     def cover(self, attr_index):
@@ -453,7 +516,6 @@ class dancing_links:
         while p.val() != attr_index:
             self.hide(p)
             p = p.right
-            print(p.val())
         self._heads.remove(self._heads.get(attr_index))
 
     def hide(self, node):
@@ -501,44 +563,102 @@ b = board(vector(0, 0, -.25), 11, 5, 11, 5)
 
 pieces = []
 
-pieces.append(piece(spots=([0, 0], [1, 0], [2, 0], [3, 0])))
-pieces.append(piece(spots=([0, 0], [1, 0], [2, 0], [3, 0], [0, 1])))
-pieces.append(piece(spots=([0, 0], [1, 0], [2, 0], [0, 1])))
-pieces.append(piece(spots=([0, 0], [1, 0], [2, 0], [0, 1], [0, 2])))
-pieces.append(piece(spots=([0, 0], [1, 0], [2, 0], [0, 1], [1, 1])))
-pieces.append(piece(spots=([1, 0], [0, 1], [1, 1], [2, 1], [1, 2])))
-pieces.append(piece(spots=([0, 0], [1, 0], [1, 1], [2, 1], [2, 2])))
-pieces.append(piece(spots=([0, 0], [1, 0], [2, 0], [2, 1], [3, 1])))
-pieces.append(piece(spots=([0, 0], [1, 0], [1, 1])))
-pieces.append(piece(spots=([0, 0], [1, 0], [0, 1], [1, 1])))
-pieces.append(piece(spots=([0, 0], [1, 0], [2, 0], [0, 1], [2, 1])))
-pieces.append(piece(spots=([0, 0], [1, 0], [2, 0], [3, 0], [2, 1])))
+# symmetry levels:
+#     0: no symmetries
+#     1: axial symmetry (only do first 2 orientations)
+#     2: biaxial symmetry (only flip)
+#     3: mirror image of itself (don't flip)
+#     4: axial and mirror symmetry (only do first 2 orientations and don't flip)
+#     5: entirely symmetric (don't do anything)
 
-mom = vector(0, 0, 0)
-t = 0
-dt = .01
+pieces.append(piece(spots=([0, 0], [1, 0], [2, 0], [3, 0]), symmetry_level=4))
+pieces.append(piece(spots=([0, 0], [1, 0], [2, 0], [3, 0], [0, 1]), symmetry_level=0))
+pieces.append(piece(spots=([0, 0], [1, 0], [2, 0], [0, 1]), symmetry_level=3))
+pieces.append(piece(spots=([0, 0], [1, 0], [2, 0], [0, 1], [0, 2]), symmetry_level=3))
+pieces.append(piece(spots=([0, 0], [1, 0], [2, 0], [0, 1], [1, 1]), symmetry_level=0))
+pieces.append(piece(spots=([1, 0], [0, 1], [1, 1], [2, 1], [1, 2]), symmetry_level=5))
+pieces.append(piece(spots=([0, 0], [1, 0], [1, 1], [2, 1], [2, 2]), symmetry_level=3))
+pieces.append(piece(spots=([0, 0], [1, 0], [2, 0], [2, 1], [3, 1]), symmetry_level=0))
+pieces.append(piece(spots=([0, 0], [1, 0], [1, 1]), symmetry_level=3))
+pieces.append(piece(spots=([0, 0], [1, 0], [0, 1], [1, 1]), symmetry_level=5))
+pieces.append(piece(spots=([0, 0], [1, 0], [2, 0], [0, 1], [2, 1]), symmetry_level=3))
+pieces.append(piece(spots=([0, 0], [1, 0], [2, 0], [3, 0], [2, 1]), symmetry_level=0))
 
-b.add_piece(pieces[2], pose=(0, 1))
-b.add_piece(pieces[6], pose=(5, 2))
+
+b.find_solution(pieces)
 
 
-# l = vllist('list')
-#
-# l.append(1)
-# l.append(3)
-# l.append(2)
-# l.append(4)
-#
-# l.remove(l.get_last_node())
-# l.remove(l.get_first_node())
-# l.remove(l.get_last_node())
-#
-# print(l)
-# print(reversed(l))
+o = """is 0
+<0, 0>
+<1, 0>
+<2, 0>
+<3, 0>
+is 1
+<0, 1>
+<1, 1>
+<2, 1>
+<3, 1>
+<0, 2>
+is 2
+<1, 2>
+<2, 2>
+<3, 2>
+<1, 3>
+is 3
+<4, 0>
+<5, 0>
+<6, 0>
+<4, 1>
+<4, 2>
+is 4
+<2, 4>
+<3, 4>
+<4, 4>
+<2, 3>
+<3, 3>
+is 5
+<5, 2>
+<4, 3>
+<5, 3>
+<6, 3>
+<5, 4>
+is 6
+<8, 2>
+<8, 1>
+<9, 1>
+<9, 0>
+<10, 0>
+is 7
+<5, 1>
+<6, 1>
+<7, 1>
+<7, 0>
+<8, 0>
+is 8
+<1, 4>
+<0, 4>
+<0, 3>
+is 9
+<8, 3>
+<9, 3>
+<8, 4>
+<9, 4>
+is 10
+<7, 2>
+<7, 3>
+<7, 4>
+<6, 2>
+<6, 4>
+is 11
+<10, 4>
+<10, 3>
+<10, 2>
+<10, 1>
+<9, 2>"""
 
-d = dancing_links([['c', 'e'], ['a', 'd', 'g'], ['b', 'c', 'f'], ['a', 'd', 'f'], ['b', 'g'], ['d', 'e', 'g']],
-                  ['a', 'b', 'c', 'd', 'e', 'f', 'g'])
+# d = dancing_links([['c', 'e'], ['a', 'd', 'g'], ['b', 'c', 'f'], ['a', 'd', 'f'], ['b', 'g'], ['d', 'e', 'g']],
+#                   ['a', 'b', 'c', 'd', 'e', 'f', 'g'])
 
 # d = dancing_links([['a'], ['b']], ['a', 'b'])
 
-print(d.solve())
+# print(d.solve())
