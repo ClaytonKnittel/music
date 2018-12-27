@@ -154,7 +154,11 @@ class board:
 
 class _node:
 
-    def __init__(self, value=None, lchild=None, rchild=None, top=None):
+    def __init__(self, name=None, value=None, lchild=None, rchild=None, top=None, len=None):
+        if name is not None:
+            self.name = str(name)
+        else:
+            self.name = None
         self._val = value
         self.left = lchild
         self.right = rchild
@@ -163,6 +167,16 @@ class _node:
             self.left = self
         if self.right is None:
             self.right = self
+        self._len = len
+
+    def __len__(self):
+        return self._len
+
+    def dec(self):
+        self._len -= 1
+
+    def inc(self):
+        self._len += 1
 
     def val(self):
         return self._val
@@ -175,18 +189,30 @@ class _node:
         self.left.right = self
         self.right.left = self
 
+    def append(self, val, top=None):
+        l = self.left
+        self.left = _node(name='added by _node.append', value=val, lchild=l, rchild=self, top=top)
+        l.right = self.left
+        self._len += 1
+
+    def get_last(self):
+        return self.left
+
     def __repr__(self):
-        return 'node ' + str(self._val) + '\t l: ' + str(self.left.val()) + '\t r: ' + str(self.right.val())
+        if self.name is not None:
+            return self.name
+        return 'node ' + str(self._val) + '\t l: ' + str(self.left.val()) + '\t r: ' + str(self.right.val())\
+               + '\t t: ' + str(self.top)
 
 
-# a value linked list, each node is expected to have a value of its index
-# in some array its contained in
-class vllist:
+# a linked list backed by an array of nodes (for random access)
+class allist:
 
     def __init__(self, name):
         self._size = 0
         self._root = _node(value=name)
         self._end = self._root
+        self._ar = []
 
     def val(self):
         return self._root.val()
@@ -194,21 +220,27 @@ class vllist:
     def __len__(self):
         return self._size
 
+    def append_node(self, node):
+        self._size += 1
+        self._end.right = node
+        node.left = self._end
+        node.right = self._root
+        self._end = node
+        self._root.left = self._end
+
+        self._ar.append(self._end)
+
     def append(self, item=None, top=None):
         if top is None:
             top = self
-        self._size += 1
-        if self._root is None:
-            self._root = _node(value=item, lchild=self, rchild=self, top=top)
-            self._end = self._root
-        else:
-            self._end.right = _node(value=item, lchild=self._end, rchild=self._root, top=top)
-            self._end = self._end.right
-            self._root.left = self._end
 
+        self.append_node(_node(name='added by allist.append', value=item, top=top))
+
+    # remove from the llist, expecting it to be added back later (does not
+    # remove from the array)
     def remove(self, node):
-        if node is None:
-            return
+        if node == None:
+            raise RuntimeError('don\'t remove NoneType')
         if self._root == node:
             raise RuntimeError('don\'t remove root node')
         self._size -= 1
@@ -217,22 +249,13 @@ class vllist:
             self._end = node.left
 
     def put_back(self, node):
-        if node is None:
-            return
         self._size += 1
         node.put_back()
         if self._end == node.left:
             self._end = node
 
     def get(self, item):
-        i = self._root
-        while i is not None:
-            if i.val()== item:
-                return i
-            i = i.right
-            if i == self._root:
-                break
-        return None
+        return self._ar[item]
 
     def get_first(self):
         return self._root.right.val()
@@ -292,16 +315,15 @@ class vllist:
         return self._start
 
     def __repr__(self):
-        return self._root.val()
-        # if len(self) == 0:
-        #     return '[]'
-        # s = '['
-        # for i in self:
-        #     if i.val() is not None:
-        #         s += str(i.val()) + ', '
-        #     else:
-        #         s += '_, '
-        # return s[:-2] + ']'
+        if len(self) == 0:
+            return '[]'
+        s = '['
+        for i in self:
+            if i.val() is not None:
+                s += str(i.val()) + ', '
+            else:
+                s += '_, '
+        return s[:-2] + ']'
 
 
 class dancing_links:
@@ -312,13 +334,13 @@ class dancing_links:
         if not hasattr(opts_and_items, '__getitem__'):
             raise TypeError('first argument of constructor must define __getitem__ (random access)')
         self._array = []
-        self._heads = vllist('heads') # list of all items
+        self._heads = allist('heads') # list of all items
+        self._opts = {}
         lookup = {}
         count = 0
         for item in itemlist:
-            lis = vllist(name=item)
-            self._heads.append(lis)
-            self._array.append(self._heads.get_last_node())
+            self._array.append(_node(name=item, value=count, len=0))
+            self._heads.append(self._array[-1])
             lookup[item] = count
             count += 1
 
@@ -331,8 +353,12 @@ class dancing_links:
             for item in option:
                 index = lookup[item]
                 # add the index of the spot in array
-                self._array[index].val().append(len(self._array), top=index)
-                self._array.append(self._array[index].val().get_last_node())
+                self._array[index].append(len(self._array), top=index)
+                self._array.append(self._array[index].get_last())
+
+                # so we can refer back to the options later when forming solutions
+                self._opts[self._array[-1].val()] = option
+
                 if first is None:
                     first = self._array[-1]
             last = self._array[-1]
@@ -345,14 +371,90 @@ class dancing_links:
             self._array.append(_node(value=len(self._array), lchild=first, top=-count))
             last_marker = self._array[-1]
 
+    def print(self):
         for item in self._array:
             print(item)
 
+    def print_pretty(self):
+        size = 8
+        off = -1
+        while off < len(self._array):
+            lok = self._array[max([off,0]):off+size]
+            s = ''
+            for i in lok:
+                s += str(i.val() + 1) + '\t'
+            print(s)
+            s = ''
+            for i in lok:
+                if i.top is None:
+                    s += 'N\t'
+                else:
+                    s += str(i.top + 1) + '\t'
+            print(s)
+            s = ''
+            for i in lok:
+                s += str(i.left.val() + 1) + '\t'
+            print(s)
+            s = ''
+            for i in lok:
+                s += str(i.right.val() + 1) + '\t'
+            print(s)
+            print()
+
+            off += size
+
+    def solve(self):
+        self.solns = []
+        self.part = []
+        self.solve_subprob(0)
+        return self.solns
+
+    def solve_subprob(self, l):
+        if len(self._heads) == 0:
+            self.solns.append(self.part.copy())
+            return
+        vv = self._heads.get_first_node()
+        attr_index = self._heads._ar.index(vv)
+        self.try_attr(attr_index, l)
+
+    def try_attr(self, attr_index, l):
+        d.cover(attr_index)
+        xl = d._array[attr_index].right.val()
+        while xl != attr_index:
+            self.try_cover(xl)
+            self.part.append(self._opts[xl])
+            self.solve_subprob(l + 1)
+            self.uncover_try(xl)
+            self.part = self.part[:-1]
+            xl = self._array[xl].right.val()
+        d.uncover(attr_index)
+
+    def try_cover(self, xl):
+        p = xl + 1
+        while p != xl:
+            if d._array[p].top < 0:
+                p = d._array[p].left.val()
+            else:
+                d.cover(d._array[p].top)
+                p += 1
+
+    def uncover_try(self, xl):
+        p = xl - 1
+        while p != xl:
+            if d._array[p].top < 0:
+                p = d._array[p].right.val()
+            else:
+                d.uncover(d._array[p].top)
+                p -= 1
+
     def cover(self, attr_index):
         node = self._array[attr_index]
-        for p in node.val():
+        p = node.right
+        while p.val() != attr_index:
             self.hide(p)
-        self._heads.remove(node)
+            p = p.right
+            print(p.val())
+        self._heads.remove(self._heads.get(attr_index))
 
     def hide(self, node):
         p = node.val()
@@ -362,14 +464,21 @@ class dancing_links:
             if n.top < 0: # node is a spacer
                 q = n.left.val()
             else:
-                self._array[n.top].remove(n)
+                n.remove()
+
+                top = self._array[n.top]
+                top.dec()
+                # if len(top) == 0:
+                #     self._heads.remove(top)
                 q += 1
 
     def uncover(self, attr_index):
+        self._heads.put_back(self._heads.get(attr_index))
         node = self._array[attr_index]
-        node.put_back()
-        for p in reversed(node.val()):
+        p = node.left
+        while p.val() != attr_index:
             self.unhide(p)
+            p = p.left
 
     def unhide(self, node):
         p = node.val()
@@ -379,7 +488,12 @@ class dancing_links:
             if n.top < 0:
                 q = n.right.val()
             else:
-                self._array[n.top].put_back(n)
+                self._array[n.val()].put_back()
+
+                top = self._array[n.top]
+                top.inc()
+                # if len(top) == 1:
+                #     self._heads.put_back(top)
                 q -= 1
 
 
@@ -422,5 +536,9 @@ b.add_piece(pieces[6], pose=(5, 2))
 # print(l)
 # print(reversed(l))
 
-d = dancing_links([['a', 'c'], ['b', 'c'], ['a']], ['a', 'b', 'c'])
+d = dancing_links([['c', 'e'], ['a', 'd', 'g'], ['b', 'c', 'f'], ['a', 'd', 'f'], ['b', 'g'], ['d', 'e', 'g']],
+                  ['a', 'b', 'c', 'd', 'e', 'f', 'g'])
 
+# d = dancing_links([['a'], ['b']], ['a', 'b'])
+
+print(d.solve())
